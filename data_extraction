@@ -1,0 +1,72 @@
+# R environment
+library(prism)
+library(stringr)
+library(raster)
+library(exactextractr)
+library(sf)
+library(data.table)
+
+
+
+# note. zcta3 shp only available in census 2000; not updated thereafter
+
+# skip this part
+# shapefile of 5digits zipcode units
+#zipcode <- st_read("/Users/jason/Downloads/prism/zcta510/tl_2019_us_zcta510.shp") %>%
+#  st_transform(crs = 4326)
+#zipcode$zcta3 <- str_sub(zipcode$ZCTA5CE10, 1, 3)
+#table(zipcode$ZCTA5CE10) %>% length()
+#table(zipcode$zcta3) %>% length()
+
+#zcta3 <- zipcode %>%
+#  dplyr::group_by(zcta3) %>%
+#  dplyr::summarise()
+#summary(zcta3)
+#st_write(zcta3, "~/Users/jason/Downloads/prism/shapefiles/zcta3.shp")
+
+
+
+# extract prism raster data to geographical units needed
+
+# load shapfiles
+dir_raw_prism <- "/Users/jason/Downloads/prism/zcta510/"
+zcta3 <- st_read(paste0(dir_raw_prism, "tl_2019_us_zcta510.shp"))
+
+unique(zcta3$ZCTA5CE10) %>% length() # 986 units
+# process by variable (multiple years in one folder )
+
+# 1. define extract function 
+extract_by_day <- function(prism_archive_ls_i){
+  
+  raster_data <- prism_archive_ls_i %>%
+    pd_stack(.)
+  
+  zcta3_climate <- exactextractr::exact_extract(raster_data,
+                                                zcta3,
+                                                append_cols = c("ZCTA5CE10"),
+                                                fun = "mean")
+  
+  zcta3_climate$date<- as.Date(str_extract(prism_archive_ls_i, "20\\d+"), format = "%Y%m%d") 
+  
+  zcta3_climate_df <- zcta3_climate %>% data.frame()
+  names(zcta3_climate_df) <- c("ZCTA5CE10", "var", "date")
+  print(Sys.time())
+  
+  return(zcta3_climate_df)
+}
+
+
+# 2. extract
+dir_zcta_extr_output <- "/Users/jason/Downloads/prism/prism_daily_extracted/"
+var <- c("tmin", "txx", "tmi")
+for (i in 1:3){
+  prism_set_dl_dir(paste0("/Users/jason/Downloads/prism/", var[i]))
+  n_days <- prism_archive_ls() %>% length()
+  
+  zcta3_climate_daily_list <- lapply(prism_archive_ls(), extract_by_day)
+  zcta3_climate_daily <- rbindlist(zcta3_climate_daily_list)
+  
+  ## the 2002-2005 observations
+  data.table::fwrite(zcta3_climate_daily, paste0(dir_zcta_extr_output, "zcta3_", var[i], "_2002_2019.csv"))
+
+}
